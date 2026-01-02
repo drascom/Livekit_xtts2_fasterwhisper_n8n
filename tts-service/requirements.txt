@@ -1,0 +1,8 @@
+# Minimal dependencies for TTS Service
+fastapi
+uvicorn
+python-dotenv
+torch==2.2.0
+torchaudio==2.2.0
+TTS==0.22.0
+transformers==4.33.3

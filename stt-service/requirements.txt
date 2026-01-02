@@ -1,0 +1,7 @@
+# Minimal dependencies for STT/ASR Service
+fastapi
+uvicorn
+python-dotenv
+python-multipart
+# Place your STT/ASR library here (e.g., whisper, speech_recognition, etc.)
+httpx

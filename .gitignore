@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code (user-specific settings)
+.claude/
+CLAUDE.md
+TODO.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+n8n-workflows/config.env
+
+# Runtime settings (user-specific)
+settings.json
+prompt/custom.md
+mcp_servers.json
+
+# Database files
+*.db
+
+# Models (large files - download separately)
+*.onnx
+*.onnx.json
+*.bin
+*.pt
+*.pth
+/models/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# MyPy
+.mypy_cache/
+
+# Docker
+docker-compose.override.yml
+
+# SSL/TLS Certificates
+certs/
+*.crt
+*.key
+*.pem
+
+# Backup files (removed code kept for reference)
+.backup/
+legacy_main_backup/
+# Note: uv.lock is intentionally NOT ignored
+# It should be committed for reproducible builds

@@ -1,0 +1,108 @@
+services:
+  livekit:
+    build: ./livekit
+    env_file:
+      - ./.env
+    ports:
+      - "7880:7880"            # WebSocket / API
+      - "7881:7881"            # TCP for WebRTC
+      - "7881:7881/udp"        # UDP for WebRTC
+      - "50000-50100:50000-50100/udp"  # Media RTP/RTCP
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7880"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  voice-agent:
+    build: ./voice-agent
+    env_file:
+      - ./.env
+    ports:
+      - "8889:8889"
+    volumes:
+      - ./tts-service/voices:/app/voices:ro
+    restart: unless-stopped
+    depends_on:
+      - livekit
+      - stt-service
+      - tts-service
+
+  stt-service:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    container_name: geveze-speaches
+    env_file:
+      - ./.env
+    ports:
+      - "${SPEACHES_PORT:-8000}:8000"
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-whisper-medium}
+    volumes:
+      - speaches-cache:/root/.cache/huggingface
+    # Uncomment for NVIDIA GPU support (Linux with nvidia-docker2)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  tts-service:
+    build: ./tts-service
+    env_file:
+      - ./.env
+    ports:
+      - "8003:8003"
+    environment:
+      - XTTS_MODEL=${XTTS_MODEL:-tts_models/multilingual/multi-dataset/xtts_v2}
+      - XTTS_VOICES_DIR=/app/voices
+      - XTTS_DEFAULT_VOICE=${XTTS_DEFAULT_VOICE:-ayhan}
+      - XTTS_DEFAULT_LANGUAGE=${XTTS_DEFAULT_LANGUAGE:-en}
+      - COQUI_LICENSE_ACCEPT=1
+      - COQUI_TOS_AGREED=1
+    volumes:
+      - ./tts-service/voices:/app/voices:ro
+      - tts-cache:/root/.cache
+    # Uncomment for NVIDIA GPU support (Linux with nvidia-docker2)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/v1/audio/voices"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    build: ./frontend
+    env_file:
+      - ./.env
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - voice-agent
+
+networks:
+  default:
+    name: geveze-network
+
+volumes:
+  tts-cache:
+  speaches-cache:
