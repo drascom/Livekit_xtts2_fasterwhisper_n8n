@@ -39,6 +39,7 @@ services:
       - "${SPEACHES_PORT:-8000}:8000"
     environment:
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-whisper-medium}
+      - SPEACHES_PRELOAD_MODELS=${SPEACHES_PRELOAD_MODELS:-Systran/faster-whisper-medium}
     volumes:
       - speaches-cache:/root/.cache/huggingface
     # Uncomment for NVIDIA GPU support (Linux with nvidia-docker2)

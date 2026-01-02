@@ -41,14 +41,22 @@ function WelcomeImage() {
 interface WelcomeViewProps {
   startButtonText: string;
   onStartCall: () => void;
+  statusMessage?: string;
+  agentReady?: boolean;
 }
 
 export const WelcomeView = ({
   startButtonText,
   onStartCall,
+  statusMessage,
+  agentReady = true,
   ref,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const statusText = agentReady
+    ? statusMessage ?? 'Agent ready'
+    : statusMessage ?? 'Preparing agent...';
 
   return (
     <div ref={ref}>
@@ -59,9 +67,17 @@ export const WelcomeView = ({
           Chat live with your voice AI agent
         </p>
 
-        <Button variant="primary" size="lg" onClick={onStartCall} className="mt-6 w-64 font-mono">
+        <Button
+          variant="primary"
+          size="lg"
+          onClick={onStartCall}
+          className="mt-6 w-64 font-mono"
+          disabled={!agentReady}
+        >
           {startButtonText}
         </Button>
+
+        <p className="text-xs text-muted-foreground mt-2">{statusText}</p>
 
         {/* Settings Button - Under start call button */}
         <button

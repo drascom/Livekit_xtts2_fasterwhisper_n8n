@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
 import { SessionView } from '@/components/app/session-view';
 import { WelcomeView } from '@/components/app/welcome-view';
+import { useAgentStatus } from '@/hooks/useAgentStatus';
+import { useStartupStatus } from '@/hooks/useStartupStatus';
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(SessionView);
@@ -35,8 +37,16 @@ interface ViewControllerProps {
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start, room } = useSessionContext();
   const lastWakeRoom = useRef<string | null>(null);
+  const agentStatus = useAgentStatus();
+  const startupStatus = useStartupStatus();
+  const isAgentReady = startupStatus?.ready ?? false;
+  const [pendingWakeRoom, setPendingWakeRoom] = useState<string | null>(null);
 
   const handleStartCall = useCallback(async () => {
+    if (!isAgentReady) {
+      return;
+    }
+
     await start();
 
     const roomName = room?.name;
@@ -45,16 +55,38 @@ export function ViewController({ appConfig }: ViewControllerProps) {
     }
 
     lastWakeRoom.current = roomName;
-    try {
-      await fetch('/api/wake', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_name: roomName }),
-      });
-    } catch (error) {
-      console.error('Failed to wake agent', error);
+    if (agentStatus?.status === 'agent_ready') {
+      try {
+        await fetch('/api/wake', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ room_name: roomName }),
+        });
+      } catch (error) {
+        console.error('Failed to wake agent', error);
+      }
+      return;
     }
-  }, [start, room]);
+
+    setPendingWakeRoom(roomName);
+  }, [start, room, agentStatus?.status, isAgentReady]);
+
+  useEffect(() => {
+    if (!pendingWakeRoom || agentStatus?.status !== 'agent_ready') {
+      return;
+    }
+
+    const roomName = pendingWakeRoom;
+    setPendingWakeRoom(null);
+
+    fetch('/api/wake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_name: roomName }),
+    }).catch((error) => {
+      console.error('Failed to wake agent', error);
+    });
+  }, [pendingWakeRoom, agentStatus?.status]);
 
   return (
     <AnimatePresence mode="wait">
@@ -65,11 +97,18 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           {...VIEW_MOTION_PROPS}
           startButtonText={appConfig.startButtonText}
           onStartCall={handleStartCall}
+          statusMessage={startupStatus?.message}
+          agentReady={isAgentReady}
         />
       )}
       {/* Session view */}
       {isConnected && (
-        <MotionSessionView key="session-view" {...VIEW_MOTION_PROPS} appConfig={appConfig} />
+        <MotionSessionView
+          key="session-view"
+          {...VIEW_MOTION_PROPS}
+          appConfig={appConfig}
+          agentStatus={agentStatus}
+        />
       )}
     </AnimatePresence>
   );

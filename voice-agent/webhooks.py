@@ -41,6 +41,7 @@ from pydantic import BaseModel
 
 import settings as settings_module
 import session_registry
+from agent_status import get_status_snapshot
 from llm.ollama_node import ToolDataCache, ollama_llm_node
 from livekit.agents.llm import ChatContext
 
@@ -123,6 +124,15 @@ class HealthResponse(BaseModel):
 
     status: str
     active_sessions: list[str]
+
+
+class AgentStatusResponse(BaseModel):
+    """Response body for /status endpoint."""
+
+    ready: bool
+    message: str | None
+    models: dict[str, dict[str, object]]
+    timestamp: float
 
 
 class GreetingRequest(BaseModel):
@@ -470,6 +480,12 @@ async def health() -> HealthResponse:
         status="ok",
         active_sessions=session_registry.list_rooms(),
     )
+
+
+@app.get("/status", response_model=AgentStatusResponse)
+async def agent_status() -> AgentStatusResponse:
+    """Expose aggregated STT/LLM/TTS readiness for the frontend."""
+    return AgentStatusResponse(**get_status_snapshot())
 
 
 # =============================================================================

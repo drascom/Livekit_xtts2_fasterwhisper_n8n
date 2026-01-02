@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -33,6 +34,7 @@ TURKISH_WORDS_RE = re.compile(
 
 SPEAKER_IDS: set[str] = set()
 tts_model: TTS | None = None
+tts_model_ready = False
 
 
 def _detect_language(text: str) -> str:
@@ -99,6 +101,38 @@ def get_tts_model() -> TTS:
         _refresh_speaker_ids(loaded)
         tts_model = loaded
     return tts_model
+
+
+@app.on_event("startup")
+async def preload_tts_model() -> None:
+    """Warm up the XTTS model on startup so the first request is fast."""
+    global tts_model_ready
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    try:
+        if loop:
+            await loop.run_in_executor(None, get_tts_model)
+        else:
+            get_tts_model()
+        tts_model_ready = True
+        logger.info("XTTS model preloaded")
+    except Exception as exc:
+        logger.exception("Failed to preload XTTS model: %s", exc)
+        tts_model_ready = False
+
+
+@app.get("/health")
+async def health() -> dict[str, object]:
+    """Health endpoint used by the voice agent to inspect XTTS readiness."""
+
+    return {
+        "status": "ok",
+        "model_ready": tts_model_ready,
+    }
 
 
 def _normalize_language(requested_language: str | None, text: str) -> str:

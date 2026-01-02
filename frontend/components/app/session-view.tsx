@@ -11,6 +11,7 @@ import {
   AgentControlBar,
   type ControlBarControls,
 } from '@/components/livekit/agent-control-bar/agent-control-bar';
+import type { AgentStatusState } from '@/hooks/useAgentStatus';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../livekit/scroll-area/scroll-area';
 
@@ -58,16 +59,19 @@ export function Fade({ top = false, bottom = false, className }: FadeProps) {
 
 interface SessionViewProps {
   appConfig: AppConfig;
+  agentStatus: AgentStatusState | null;
 }
 
 export const SessionView = ({
   appConfig,
+  agentStatus,
   ...props
 }: React.ComponentProps<'section'> & SessionViewProps) => {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
   const [chatOpen, setChatOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const shouldShowStatus = appConfig.isPreConnectBufferEnabled || !!agentStatus?.message;
 
   const controls: ControlBarControls = {
     leave: true,
@@ -113,8 +117,12 @@ export const SessionView = ({
         {...BOTTOM_VIEW_MOTION_PROPS}
         className="fixed inset-x-3 bottom-0 z-50 md:inset-x-12"
       >
-        {appConfig.isPreConnectBufferEnabled && (
-          <PreConnectMessage messages={messages} className="pb-4" />
+        {shouldShowStatus && (
+          <PreConnectMessage
+            messages={messages}
+            className="pb-4"
+            statusMessage={agentStatus?.message}
+          />
         )}
         <div className="bg-background relative mx-auto max-w-2xl pb-3 md:pb-12">
           <Fade bottom className="absolute inset-x-0 top-0 h-4 -translate-y-full" />

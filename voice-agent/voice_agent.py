@@ -25,6 +25,7 @@ Environment Variables:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -60,6 +61,7 @@ from integrations import (
 )
 from llm.ollama_node import ollama_llm_node, ToolDataCache
 import session_registry
+from agent_status import update_model_status, wait_until_ready
 
 # Configure logging - clean output for production
 # Set DEBUG_MODE=true in .env to see verbose logs
@@ -97,6 +99,7 @@ TTS_SERVICE_URL = os.getenv("TTS_SERVICE_URL", "http://tts-service:8003")
 OLLAMA_THINK = os.getenv("OLLAMA_THINK", "false").lower() == "true"
 TIMEZONE_ID = os.getenv("TIMEZONE", "America/Los_Angeles")
 TIMEZONE_DISPLAY = os.getenv("TIMEZONE_DISPLAY", "Pacific Time")
+AGENT_MODELS_WAIT_TIMEOUT = float(os.getenv("STT_MODEL_WAIT_TIMEOUT", "0"))
 
 # Import settings module for runtime-configurable values
 import settings as settings_module
@@ -191,11 +194,30 @@ class VoiceAssistant(WebSearchTools, Agent):
 # Agent Entrypoint
 # =============================================================================
 
+async def _publish_agent_status(ctx: agents.JobContext, status: str, message: str | None = None) -> None:
+    payload = {"type": "agent_status", "status": status}
+    if message:
+        payload["message"] = message
+
+    try:
+        await ctx.room.local_participant.publish_data(
+            bytes(json.dumps(payload), "utf-8"),
+            reliable=True,
+            topic="agent_status",
+        )
+    except Exception as e:
+        logger.debug("Failed to publish agent status %s: %s", status, e)
+
+
 async def entrypoint(ctx: agents.JobContext) -> None:
     """Main entrypoint for the voice agent."""
 
     logger.debug(f"Joining room: {ctx.room.name}")
     await ctx.connect()
+
+    timeout = AGENT_MODELS_WAIT_TIMEOUT if AGENT_MODELS_WAIT_TIMEOUT > 0 else None
+    if not await wait_until_ready(timeout):
+        logger.warning("Agent models not ready before accepting the session (timeout reached).")
 
     # Load MCP servers from config
     mcp_servers = {}
@@ -325,6 +347,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
     # Register session for webhook access
     session_registry.register(ctx.room.name, session, assistant)
+    await _publish_agent_status(ctx, "agent_ready", "Agent ready")
 
     # Create event to wait for session close
     close_event = asyncio.Event()
@@ -372,21 +395,46 @@ def preload_models():
 
     logger.info("Preloading models...")
 
-    # Download Whisper STT model
+    update_model_status("stt", "downloading", f"Downloading STT: {whisper_model}")
     try:
         logger.info(f"  Loading STT: {whisper_model}")
         response = requests.post(
-            f"{speaches_url}/v1/models/{whisper_model}",
+            f"{speaches_url}/v1/models",
+            json={"id": whisper_model},
             timeout=300
         )
         if response.status_code == 200:
             logger.info("  ✓ STT ready")
+            update_model_status("stt", "ready", "Speaches STT ready")
         else:
             logger.warning(f"  STT model download returned {response.status_code}")
-    except Exception as e:
-        logger.warning(f"  Failed to preload STT model: {e}")
+            update_model_status("stt", "error", f"STT download returned {response.status_code}")
+    except Exception as exc:
+        logger.warning(f"  Failed to preload STT model: {exc}")
+        update_model_status("stt", "error", f"Failed to preload STT model: {exc}")
 
-    # Warm up Ollama LLM with correct num_ctx (loads model into VRAM)
+    update_model_status("tts", "downloading", "Waiting for XTTS service")
+    tts_ready = False
+    for attempt in range(8):
+        try:
+            tts_response = requests.get(f"{TTS_SERVICE_URL}/health", timeout=10)
+            if tts_response.status_code == 200:
+                payload = tts_response.json()
+                ready = bool(payload.get("model_ready"))
+                message = payload.get("message") or ("XTTS ready" if ready else "XTTS loading")
+                update_model_status("tts", "ready" if ready else "downloading", message)
+                if ready:
+                    tts_ready = True
+                    break
+            else:
+                logger.info("  XTTS health check returned %s", tts_response.status_code)
+        except Exception as exc:  # pragma: no cover
+            logger.info("  XTTS health check failed: %s", exc)
+        time.sleep(2)
+    if not tts_ready:
+        update_model_status("tts", "error", "XTTS service unavailable")
+
+    update_model_status("llm", "downloading", f"Loading LLM: {ollama_model}")
     try:
         logger.info(f"  Loading LLM: {ollama_model} (num_ctx={ollama_num_ctx})")
         response = requests.post(
@@ -402,10 +450,13 @@ def preload_models():
         )
         if response.status_code == 200:
             logger.info("  ✓ LLM ready")
+            update_model_status("llm", "ready", "LLM ready")
         else:
             logger.warning(f"  LLM warmup returned {response.status_code}")
-    except Exception as e:
-        logger.warning(f"  Failed to preload LLM: {e}")
+            update_model_status("llm", "error", f"LLM warmup returned {response.status_code}")
+    except Exception as exc:
+        logger.warning(f"  Failed to preload LLM: {exc}")
+        update_model_status("llm", "error", f"Failed to preload LLM: {exc}")
 
 
 # =============================================================================
