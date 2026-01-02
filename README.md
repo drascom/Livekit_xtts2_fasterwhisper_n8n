@@ -9,6 +9,29 @@ services on the same Docker host behind an HTTPS reverse proxy.
 - **stt-service**: speech-to-text (currently stubbed)
 - **tts-service**: text-to-speech (currently stubbed)
 
+## Install & Run
+
+Prereqs: Docker + Docker Compose.
+
+1) Create the shared `.env` file at the repo root (see below).
+2) Build and start everything:
+
+```
+docker compose up --build
+```
+
+To run in the background:
+
+```
+docker compose up --build -d
+```
+
+Stop services:
+
+```
+docker compose down
+```
+
 ## Single Environment File
 
 All services and the frontend read from one shared file at the repo root:
