@@ -538,7 +538,7 @@ def preload_models():
                 tts_wait_logged = True
         time.sleep(2)
     if not tts_ready:
-        update_model_status("tts", "error", "XTTS service unavailable")
+        update_model_status("tts", "downloading", "Model downloading, please wait")
 
     update_model_status("llm", "downloading", f"Loading LLM: {ollama_model}")
     try:
