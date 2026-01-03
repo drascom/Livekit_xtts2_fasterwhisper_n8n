@@ -35,7 +35,6 @@ env/
 
 # Claude Code (user-specific settings)
 .claude/
-CLAUDE.md
 TODO.md
 
 # Environment files
