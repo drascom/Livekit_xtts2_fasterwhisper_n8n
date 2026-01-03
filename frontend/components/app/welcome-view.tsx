@@ -55,8 +55,8 @@ export const WelcomeView = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const statusText = agentReady
-    ? statusMessage ?? 'Agent ready'
-    : statusMessage ?? 'Preparing agent...';
+    ? (statusMessage ?? 'Agent ready')
+    : (statusMessage ?? 'Preparing agent...');
 
   return (
     <div ref={ref}>
@@ -77,7 +77,7 @@ export const WelcomeView = ({
           {startButtonText}
         </Button>
 
-        <p className="text-xs text-muted-foreground mt-2">{statusText}</p>
+        <p className="muted-foreground mt-2 text-xs">{statusText}</p>
 
         {/* Settings Button - Under start call button */}
         <button

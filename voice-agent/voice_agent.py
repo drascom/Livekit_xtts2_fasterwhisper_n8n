@@ -101,6 +101,8 @@ TIMEZONE_ID = os.getenv("TIMEZONE", "America/Los_Angeles")
 TIMEZONE_DISPLAY = os.getenv("TIMEZONE_DISPLAY", "Pacific Time")
 AGENT_MODELS_WAIT_TIMEOUT = float(os.getenv("STT_MODEL_WAIT_TIMEOUT", "0"))
 
+VAD_INSTANCE: silero.VAD | None = None
+
 # Import settings module for runtime-configurable values
 import settings as settings_module
 
@@ -276,7 +278,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             model="xtts",
             voice=runtime["tts_voice"],
         ),
-        vad=silero.VAD.load(),
+        vad=VAD_INSTANCE or silero.VAD.load(),
     )
 
     # ==========================================================================
@@ -339,11 +341,16 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     )
 
     # Start session
-    await session.start(
-        room=ctx.room,
-        agent=assistant,
-        room_input_options=RoomInputOptions(),
-    )
+    try:
+        await session.start(
+            room=ctx.room,
+            agent=assistant,
+            room_input_options=RoomInputOptions(),
+        )
+    except Exception as exc:
+        logger.exception("Failed to start agent session: %s", exc)
+        await _publish_agent_status(ctx, "agent_error", "Failed to start agent session")
+        raise
 
     # Register session for webhook access
     session_registry.register(ctx.room.name, session, assistant)
@@ -360,9 +367,12 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     try:
         # Send initial greeting (no tools - just a simple voice greeting)
         logger.info("🎤 SESSION STARTED - Sending greeting...")
-        await session.generate_reply(
-            instructions="Say a brief, friendly greeting like 'Hey, how can I help you today?' Do NOT use any tools or mention capabilities - just greet."
-        )
+        try:
+            await session.generate_reply(
+                instructions="Say a brief, friendly greeting like 'Hey, how can I help you today?' Do NOT use any tools or mention capabilities - just greet."
+            )
+        except Exception as exc:
+            logger.exception("Failed to send greeting: %s", exc)
 
         logger.info("✅ Ready - listening for speech...")
 
@@ -399,11 +409,10 @@ def preload_models():
     try:
         logger.info(f"  Loading STT: {whisper_model}")
         response = requests.post(
-            f"{speaches_url}/v1/models",
-            json={"id": whisper_model},
+            f"{speaches_url}/v1/models/{whisper_model}",
             timeout=300
         )
-        if response.status_code == 200:
+        if response.status_code in (200, 201):
             logger.info("  ✓ STT ready")
             update_model_status("stt", "ready", "Speaches STT ready")
         else:
@@ -457,6 +466,14 @@ def preload_models():
     except Exception as exc:
         logger.warning(f"  Failed to preload LLM: {exc}")
         update_model_status("llm", "error", f"Failed to preload LLM: {exc}")
+
+    global VAD_INSTANCE
+    try:
+        logger.info("  Loading VAD model")
+        VAD_INSTANCE = silero.VAD.load()
+        logger.info("  ✓ VAD ready")
+    except Exception as exc:
+        logger.warning("  Failed to preload VAD model: %s", exc)
 
 
 # =============================================================================
