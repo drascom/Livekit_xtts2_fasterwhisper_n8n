@@ -1,0 +1,120 @@
+{
+  "name": "calendar_get_events",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendar_get_events",
+        "responseMode": "lastNode",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f6846e56-0bab-4b33-a1d0-9f521b0ca129",
+      "name": "Webhook",
+      "webhookId": "afe84520-ef0c-480f-a61f-9323163ab99a"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "8hgqtcsiej7sucgg50ub3v1uss@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "Cor and Ash's Calendar"
+        },
+        "timeMin": "={{ $json.start_date }}",
+        "timeMax": "={{ $json.end_date }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "c25c365e-642d-4876-89b7-2259babaf6c0",
+      "name": "Get many events",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "hsXFmEfCRMaamQeR",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle both JSON string and object formats\n  let data;\n\n  if (typeof items[0].json.body === 'string') {\n    // If body is a JSON string, parse it\n    data = JSON.parse(items[0].json.body);\n  } else if (typeof items[0].json === 'object' && items[0].json.start_date) {\n    // If data is already at the root level\n    data = items[0].json;\n  } else if (typeof items[0].json.body === 'object') {\n    // If body is already an object\n    data = items[0].json.body;\n  } else {\n    // Fallback - try to find the data\n    data = items[0].json;\n  }\n\n  return [\n    {\n      json: {\n        start_date: data.start_date,\n        end_date: data.end_date\n      }\n    }\n  ];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "8108b462-57ab-4016-b5e6-a99e0484de72",
+      "name": "Parse the JSON string from the body"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform Google Calendar format to CAAL-friendly format for voice AI\n// Extract ISO datetime strings from Google Calendar's nested format\nreturn items.map(item => {\n  // Google Calendar returns start/end as objects with either dateTime or date\n  const startValue = item.json.start?.dateTime || item.json.start?.date || '';\n  const endValue = item.json.end?.dateTime || item.json.end?.date || '';\n  \n  return {\n    json: {\n      summary: item.json.summary || 'Untitled Event',\n      start: startValue,\n      end: endValue,\n      location: item.json.location || '',\n      description: item.json.description || ''\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "5a4be488-4418-49fc-a48f-38056e737ba1",
+      "name": "Transform Google Calendar format to CAAL-friendly format"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse the JSON string from the body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events": {
+      "main": [
+        [
+          {
+            "node": "Transform Google Calendar format to CAAL-friendly format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse the JSON string from the body": {
+      "main": [
+        [
+          {
+            "node": "Get many events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Google Calendar format to CAAL-friendly format": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "availableInMCP": true
+  }
+}

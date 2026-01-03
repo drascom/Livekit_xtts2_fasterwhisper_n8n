@@ -1,0 +1,252 @@
+{
+  "name": "radarr_search_movies",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radarr_search_movies",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5a61968e-1d22-4a01-959a-27271d9c5980",
+      "name": "Webhook - Media Query",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        -144
+      ],
+      "webhookId": "caal-media-query-webhook",
+      "notes": "Use this workflow (tool) to query the Radarr movie library. Required parameter is `query`."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract search query from CAAL request\nconst payload = $input.first().json.body || $input.first().json;\nconst query = payload.query || '';\n\nif (!query) {\n  throw new Error('No query provided in request');\n}\n\n// URL encode for API requests\nconst encodedQuery = encodeURIComponent(query);\n\nreturn {\n  json: {\n    original_query: query,\n    encoded_query: encodedQuery,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "f3aa1086-235a-4681-9f79-c7f859c4ada0",
+      "name": "Extract Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        -144
+      ],
+      "notes": "Parses incoming CAAL webhook data.\nValidates query exists.\nURL-encodes for API calls."
+    },
+    {
+      "parameters": {
+        "url": "=http://{{RADARR_HOST}}/api/v3/movie",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "55882bcb094040c38ccd9d2e6f671bbf"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9f7b700d-0b7b-4868-b504-3261e19f9063",
+      "name": "Search Radarr",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        0,
+        -144
+      ],
+      "notes": "⚠️ UPDATE: Replace http://radarr:7878 with your Radarr URL.\n⚠️ UPDATE: Replace YOUR_RADARR_API_KEY with actual key.\n\nAPI Endpoint: /api/v3/movie/lookup\nSearches for movies matching query."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "9e5fbfdf-acef-45d3-bdba-cd488fa8d89a",
+      "name": "Return to CAAL",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -144
+      ],
+      "notes": "Sends JSON response back to CAAL.\nCALL will receive the 'message' field for voice output.\n\nResponse format:\n{\n  \"found\": true/false,\n  \"message\": \"Voice-friendly response\",\n  \"type\": \"movie\" or \"tv\",\n  \"status\": \"available\"/\"not downloaded\"/etc.\n}"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9618d397-fabc-4589-8925-d07359ec33b9",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "={{ $('Extract Query').item.json.original_query }}",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        192,
+        -144
+      ],
+      "id": "86a35acd-995c-44fd-8bc1-98a25fcfe888",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"title\" : \"{{ $json.title }}\",\n  \"year\" : {{ $json.year }},\n  \"overview\" : \"{{ $json.overview }}\",\n  \"downloaded\" : {{ $json.hasFile }}\n}\n ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        384,
+        -144
+      ],
+      "id": "27ee7487-6350-44f4-b49f-2d5689f6c0c2",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "  const items = $input.all();\n\n  if (items.length === 0) {\n    return {\n      json: {\n        found: false,\n        message: \"No movies found matching your search.\"\n      }\n    };\n  }\n\n  return {\n    json: {\n      found: true,\n      count: items.length,\n      results: 'You have ' + items.length + \" \" +  $('Extract Query').first().json.original_query + \" movies. Do you want me to list them?\" }\n  };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        -144
+      ],
+      "id": "edd06302-bc1c-40a4-83fb-a88b174934b8",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "year",
+              "order": "descending"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [
+        592,
+        -144
+      ],
+      "id": "f662ab97-1743-4707-adfc-17a1054e107e",
+      "name": "Sort"
+    }
+  ],
+  "connections": {
+    "Webhook - Media Query": {
+      "main": [
+        [
+          {
+            "node": "Extract Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Query": {
+      "main": [
+        [
+          {
+            "node": "Search Radarr",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Radarr": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Sort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Return to CAAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "availableInMCP": true
+  }
+}

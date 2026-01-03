@@ -1,0 +1,732 @@
+{
+  "name": "n8n_create_caal_tool",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "n8n_create_caal_tool",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -224,
+        -160
+      ],
+      "id": "223d582e-3412-49e3-a4b3-944c4124c827",
+      "name": "Webhook",
+      "webhookId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+      "notes": "Use this tool to create new tools for yourself from natural language descriptions. \n\n  Parameters:\n  - description (string, required): Natural language description of what the workflow should do\n  - requirements (string, optional): Additional technical requirements or constraints\n\n  Example:\n  {\n    \"description\": \"Fetch weather data from OpenWeatherMap API every hour and send alerts to Slack if temperature exceeds 90°F\",\n    \"requirements\": \"Use OpenWeatherMap API\"\n  }\n\nReturns the created workflow ID, name, and explanation of the implementation approach. The workflow is automatically added to your available tools."
+    },
+    {
+      "parameters": {
+        "command": "={ echo \"Read {{WORKFLOWS_DIR}}/caal-workflow-builder-seed.md\n\nDescription: {{ $json.body.description }}\nRequirements: {{ $json.body.requirements || 'None' }}\"; } | claude --model sonnet --print --output-format json --allowedTools \"Read,Write,Glob,WebSearch,WebFetch,Bash(curl:*)\"",
+        "cwd": "{{WORKFLOWS_DIR}}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -160
+      ],
+      "id": "26905aaa-140c-4d20-9a44-7dcdbda65640",
+      "name": "Claude Create Workflow",
+      "credentials": {
+        "sshPassword": {
+          "id": "{{SSH_CREDENTIAL_ID}}",
+          "name": "{{SSH_CREDENTIAL_NAME}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get Claude's response from the de-stringified result\n  const claudeResponse = $input.first().json.claude_response.result;\n\n  // Extract JSON from ```json fence\n  const jsonMatch = claudeResponse.match(/```json\\s*\\n([\\s\\S]*?)\\n```/);\n  if (!jsonMatch) {\n    throw new Error('Could not find JSON code fence in Claude response');\n  }\n\n  // Extract announcement from ```announcement fence\n  const announcementMatch = claudeResponse.match(/```announcement\\s*\\n([\\s\\S]*?)\\n```/);\n  const announcement = announcementMatch ? announcementMatch[1].trim() : '';\n\n  // Parse the workflow\n  const newWorkflow = JSON.parse(jsonMatch[1]);\n\n  return {\n    json: {\n      workflow: newWorkflow,\n      workflowJson: jsonMatch[1],\n      announcement: announcement\n    }\n  };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        -160
+      ],
+      "id": "45a973c3-6427-4b93-9f24-38f9d04da925",
+      "name": "Parse Claude Response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/api/v1/workflows",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=name",
+              "value": "={{ $json.workflow.name }}"
+            },
+            {
+              "name": "nodes",
+              "value": "={{ $json.workflow.nodes }}"
+            },
+            {
+              "name": "connections",
+              "value": "={{ $json.workflow.connections }}"
+            },
+            {
+              "name": "settings",
+              "value": "={{ $json.workflow.settings }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        784,
+        -160
+      ],
+      "id": "4ab64785-d170-4676-8705-3de3abaea770",
+      "name": "Create Workflow",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{N8N_API_CREDENTIAL_ID}}",
+          "name": "n8n"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.id }}/activate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "versionId",
+              "value": "={{ $json.versionId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1008,
+        -176
+      ],
+      "id": "09cf1e40-8eb7-46a7-8162-f41d133f158a",
+      "name": "Activate Workflow",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{N8N_API_CREDENTIAL_ID}}",
+          "name": "n8n"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+              "name": "claude_response",
+              "value": "={{ $json.stdout }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        368,
+        -160
+      ],
+      "id": "7eb6c916-1b1f-4e4b-a566-ea62ebe8eead",
+      "name": "De-Stringify"
+    },
+    {
+      "parameters": {
+        "command": "={ echo \"The workflow is now published. test it and ensure its working as intended, if it is, respond with only \"OK\", if its not working fix it and respond with only json, the updated workflow. and update the file.\"; echo \" you can test it with a curl call.\"; } | claude --model sonnet --print --output-format json --allowedTools 'Write,Bash(curl:*)' -r {{ $('De-Stringify').item.json.claude_response.session_id }}",
+        "cwd": "{{WORKFLOWS_DIR}}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1408,
+        -176
+      ],
+      "id": "81a37bf0-9c98-4570-b0a6-5d2194f044bd",
+      "name": "Claude Test Workflow",
+      "credentials": {
+        "sshPassword": {
+          "id": "{{SSH_CREDENTIAL_ID}}",
+          "name": "{{SSH_CREDENTIAL_NAME}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+              "name": "claude_response",
+              "value": "={{ $json.stdout }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1584,
+        -176
+      ],
+      "id": "0aaa2cad-a139-4624-8b71-27e0fd6b5505",
+      "name": "De-Stringify 2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ebf83f62-8684-4ec7-ad88-9ae1bc8a386d",
+              "leftValue": "={{ $json.claude_response.result }}",
+              "rightValue": "OK",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1760,
+        -176
+      ],
+      "id": "40c204cd-6449-4482-b08a-139e34aac731",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get Claude's response from the de-stringified result\nconst claudeResponse = $input.first().json.claude_response.result;\n\n// Split on the JSON code fence to extract preamble and workflow\nconst fenceMatch = claudeResponse.match(/([\\s\\S]*?)```json\\s*\\n([\\s\\S]*?)\\n```/);\n\nif (!fenceMatch) {\n  throw new Error('Could not find JSON code fence in Claude response');\n}\n\nconst preamble = fenceMatch[1].trim();  // Everything before ```json\nconst workflowJson = fenceMatch[2];     // Content between fences\n\n// Parse the workflow\nconst newWorkflow = JSON.parse(workflowJson);\n\nreturn {\n  json: {\n    preamble: preamble,           // Send this to CAAL\n    workflow: newWorkflow,         // Send this to n8n\n    workflowJson: workflowJson    // Raw JSON string (if needed)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        32
+      ],
+      "id": "2769ae9c-f8e1-486d-9cde-0ff42ee002fa",
+      "name": "Parse Claude Response 2"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $('Create Workflow').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=name",
+              "value": "={{ $json.workflow.name }}"
+            },
+            {
+              "name": "nodes",
+              "value": "={{ $json.workflow.nodes }}"
+            },
+            {
+              "name": "connections",
+              "value": "={{ $json.workflow.connections }}"
+            },
+            {
+              "name": "settings",
+              "value": "={{ $json.workflow.settings }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2080,
+        32
+      ],
+      "id": "49ee7465-8c20-4b57-8920-b6c730f716dc",
+      "name": "Update Workflow",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{N8N_API_CREDENTIAL_ID}}",
+          "name": "n8n"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:5678/api/v1/workflows/{{ $json.id }}/activate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "versionId",
+              "value": "={{ $json.versionId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2320,
+        16
+      ],
+      "id": "525ca49c-ab00-438d-a8bf-d08d206172ac",
+      "name": "Activate Workflow 2",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{N8N_API_CREDENTIAL_ID}}",
+          "name": "n8n"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \n  \"message\": \"Ok, I'm creating a tool to {{ $json.body.description }}. I'll let you know when its done.\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -32,
+        -160
+      ],
+      "id": "d336889c-a447-4acf-b52d-c96208e4d375",
+      "name": "Return to CAAL"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://{{CAAL_HOST}}/reload-tools",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tool_name\" : \"{{ $('Parse Claude Response').item.json.workflow.name }}\",\n  \"message\" : \"{{ $('Parse Claude Response').item.json.announcement }}\",\n  \"room_name\" : \"voice_assistant_room\"\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1968,
+        -272
+      ],
+      "id": "8c21cee8-ae51-46bf-9d33-31199054e8f4",
+      "name": "Reload Tools - Announce"
+    },
+    {
+      "parameters": {
+        "command": "={ echo \"IMPORTANT: You are creating a BRAND NEW workflow from scratch, not updating an existing one. Do not include createdAt, updatedAt, id, lastExecuted or versionId fields.\n\nCreate a new n8n workflow based on this description. My voice assistant will call this using a webhook and the convention must be followed that the name of the workflow matches the webhook path with the following convention: service_action_object. Object may be two words separated by an underscore if required. \n\nInclude brief instructions in the notes section of the webhook node for my voice assistant to use, keep it brief and include required parameters. \n\nReference CREDENTIALS.md for available n8n credentials if required. Use existing credentials when possible or free open apis.\n\nReturn the complete workflow JSON with name, nodes, settings, connections.\n\nUnder settings set availableInMCP to true.\n\nalso in the response, separate from the workflow, include a short message (1-2 sentences) that will be read aloud by the voice assistant informing the user that it now has a tool that does [x]. Keep it conversational and natural for text-to-speech.\n\nExample outputs:\n  - \"Ive created espn get nfl scores. I can now check live NFL scores for you.\"\n  - \"Done. I built a weather lookup tool - just ask me about the weather anytime.\"\n  - \"New tool ready: calendar create event. I can now add events to your calendar.\"\n\nThe workflow should follow n8n best practices. The output of the workflow will be read aloud by a voice assistant so format the response to be brief, conversational and plain text.\n\nDescription: {{ $json.body.description }}\n\nAdditional requirements:\"; echo '{{ $json.body.requirements || \"None\" }}'; } | claude --model sonnet --print --output-format json --allowedTools \"Read\" -r \"00000003-0000-0000-0000-000000000003\"",
+        "cwd": "{{WORKFLOWS_DIR}}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -352
+      ],
+      "id": "651bf23c-76c2-4a61-917d-52644dcaf00d",
+      "name": "Claude Create Workflow1",
+      "credentials": {
+        "sshPassword": {
+          "id": "{{SSH_CREDENTIAL_ID}}",
+          "name": "{{SSH_CREDENTIAL_NAME}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3955393a-9213-47ff-a398-74024e626f28",
+              "name": "retryCount",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1216,
+        -176
+      ],
+      "id": "711f22f0-bb3c-41fd-9396-6d496309db5b",
+      "name": "Set Counter"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3c540e43-2b7e-4cdc-88f0-115b8c735491",
+              "name": "retryCount",
+              "value": "={{ $('Set Counter').item.json.retryCount + 1 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2528,
+        16
+      ],
+      "id": "46d68808-b7c0-49ab-bce2-9f49d25e6863",
+      "name": "Set Counter 2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9196da60-78dd-4c5b-b339-e89362eb895f",
+              "leftValue": "={{ $json.retryCount }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2736,
+        16
+      ],
+      "id": "87a41c15-c1d1-4323-8aa9-1be58ccb89b7",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "command": "={ echo \"You have had 3 attempts to get the workflow to work but you have not been successful. Respond with a brief message to the voice assistant explaining that manual intervention is required on the n8n workflow and what the problem is. Eg. \n'{\n    \"message\": \"I tried 3 times but the ESPN API keeps returning 403. Might need an API key.\",\n    \"workflow_id\": \"123\",\n    \"last_error\": \"403 Forbidden\"\n  }'\"; } | claude --model sonnet --print --output-format json -r {{ $('De-Stringify').item.json.claude_response.session_id }}",
+        "cwd": "{{WORKFLOWS_DIR}}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        2960,
+        32
+      ],
+      "id": "203f7582-f6e5-46b6-8046-90bd91502b5b",
+      "name": "Claude Fail",
+      "credentials": {
+        "sshPassword": {
+          "id": "{{SSH_CREDENTIAL_ID}}",
+          "name": "{{SSH_CREDENTIAL_NAME}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://{{CAAL_HOST}}/announce",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\" : \"{{ $('Parse Claude Response').item.json.message }}\",\n  \"room_name\" : \"voice_assistant_room\"\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3376,
+        32
+      ],
+      "id": "cb8278d8-d894-405e-9ed4-2c30ee3694de",
+      "name": "Reload Tools - Announce1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+              "name": "claude_response",
+              "value": "={{ $json.stdout }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3184,
+        32
+      ],
+      "id": "40e76ce9-3812-4abc-8cd2-e4ac363810c2",
+      "name": "De-Stringify 3"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Return to CAAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Create Workflow": {
+      "main": [
+        [
+          {
+            "node": "De-Stringify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Create Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Workflow": {
+      "main": [
+        [
+          {
+            "node": "Activate Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate Workflow": {
+      "main": [
+        [
+          {
+            "node": "Set Counter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "De-Stringify": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Test Workflow": {
+      "main": [
+        [
+          {
+            "node": "De-Stringify 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "De-Stringify 2": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Reload Tools - Announce",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Claude Response 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response 2": {
+      "main": [
+        [
+          {
+            "node": "Update Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Workflow": {
+      "main": [
+        [
+          {
+            "node": "Activate Workflow 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate Workflow 2": {
+      "main": [
+        [
+          {
+            "node": "Set Counter 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return to CAAL": {
+      "main": [
+        [
+          {
+            "node": "Claude Create Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Counter": {
+      "main": [
+        [
+          {
+            "node": "Claude Test Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Counter 2": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Claude Test Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Claude Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Fail": {
+      "main": [
+        [
+          {
+            "node": "De-Stringify 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "De-Stringify 3": {
+      "main": [
+        [
+          {
+            "node": "Reload Tools - Announce1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "availableInMCP": true
+  }
+}
