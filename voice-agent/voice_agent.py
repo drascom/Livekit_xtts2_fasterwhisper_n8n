@@ -401,6 +401,24 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         logger.info(f"📴 SESSION ENDED: {ev.reason}")
         close_event.set()
 
+    # Also handle room disconnect as a backup (in case session close doesn't fire)
+    @ctx.room.on("disconnected")
+    def on_room_disconnected() -> None:
+        logger.info("📴 ROOM DISCONNECTED - triggering session cleanup")
+        close_event.set()
+
+    # Handle participant disconnect (user leaves)
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(participant) -> None:
+        # Check if any non-agent participants remain
+        human_participants = [
+            p for p in ctx.room.remote_participants.values()
+            if not p.identity.startswith("agent-")
+        ]
+        if not human_participants:
+            logger.info(f"📴 USER LEFT ({participant.identity}) - no humans remaining, ending session")
+            close_event.set()
+
     try:
         # Send initial greeting (no tools - just a simple voice greeting)
         logger.info("🎤 SESSION STARTED - Sending greeting...")
@@ -419,6 +437,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     finally:
         # Unregister session on cleanup
         session_registry.unregister(ctx.room.name)
+        logger.info(f"🧹 Session cleanup complete for room: {ctx.room.name}")
 
 
 # =============================================================================

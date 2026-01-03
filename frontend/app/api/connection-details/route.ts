@@ -56,7 +56,14 @@ const API_KEY = getEnv('LIVEKIT_API_KEY');
 const API_SECRET = getEnv('LIVEKIT_API_SECRET');
 const LIVEKIT_URL = getEnv('LIVEKIT_URL');
 const LIVEKIT_PUBLIC_URL = getEnv('NEXT_PUBLIC_LIVEKIT_URL') ?? getEnv('LIVEKIT_PUBLIC_URL');
-const FIXED_ROOM_NAME = getEnv('LIVEKIT_ROOM_NAME') ?? 'voice_assistant_room';
+const ROOM_NAME_PREFIX = getEnv('LIVEKIT_ROOM_NAME') ?? 'voice_assistant_room';
+
+function generateRoomName(): string {
+  // Generate unique room name per session to ensure fresh agent dispatch
+  const timestamp = Date.now();
+  const randomSuffix = Math.random().toString(36).substring(2, 8);
+  return `${ROOM_NAME_PREFIX}_${timestamp}_${randomSuffix}`;
+}
 
 // don't cache the results
 export const revalidate = 0;
@@ -80,7 +87,7 @@ export async function POST(req: Request) {
     // Generate participant token
     const participantName = 'user';
     const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = FIXED_ROOM_NAME;
+    const roomName = generateRoomName();
 
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },

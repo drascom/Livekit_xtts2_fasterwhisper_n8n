@@ -42,6 +42,13 @@ export function ViewController({ appConfig }: ViewControllerProps) {
   const isAgentReady = startupStatus?.ready ?? false;
   const [pendingWakeRoom, setPendingWakeRoom] = useState<string | null>(null);
 
+  // Reset lastWakeRoom when disconnected so greeting fires on reconnect
+  useEffect(() => {
+    if (!isConnected) {
+      lastWakeRoom.current = null;
+    }
+  }, [isConnected]);
+
   const handleStartCall = useCallback(async () => {
     if (!isAgentReady) {
       return;
