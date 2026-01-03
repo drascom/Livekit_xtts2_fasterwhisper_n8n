@@ -50,7 +50,8 @@ if _internal_url:
     os.environ["LIVEKIT_URL"] = _internal_url
 
 from livekit import agents
-from livekit.agents import AgentSession, Agent, RoomInputOptions, mcp
+from livekit.agents import AgentSession, Agent, mcp
+from livekit.agents.voice import room_io
 from livekit.plugins import silero, openai
 
 from llm.ollama_llm import OllamaLLM
@@ -381,7 +382,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         await session.start(
             room=ctx.room,
             agent=assistant,
-            room_input_options=RoomInputOptions(),
+            room_options=room_io.RoomOptions(),
         )
     except Exception as exc:
         logger.exception("Failed to start agent session: %s", exc)

@@ -20,6 +20,9 @@ export function useStartupStatus(pollIntervalMs = 4000) {
       try {
         const response = await fetch('/api/agent-status', { cache: 'no-store' });
         if (!response.ok) {
+          if (response.status === 502 || response.status === 503) {
+            throw new Error('XTTS waiting for service...');
+          }
           throw new Error(`Status request failed: ${response.status}`);
         }
         const payload = await response.json();
@@ -32,9 +35,13 @@ export function useStartupStatus(pollIntervalMs = 4000) {
         });
       } catch (error) {
         if (!isMounted) return;
+        const fallbackMessage =
+          error instanceof Error && error.message.startsWith('Status request failed')
+            ? error.message
+            : 'XTTS waiting for service...';
         setStatus({
           ready: false,
-          message: (error as Error).message,
+          message: (error as Error).message ?? fallbackMessage,
           timestamp: Date.now(),
         });
       }

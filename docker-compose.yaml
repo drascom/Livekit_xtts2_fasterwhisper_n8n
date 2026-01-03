@@ -43,13 +43,13 @@ services:
     volumes:
       - speaches-cache:/root/.cache/huggingface
     # Uncomment for NVIDIA GPU support (Linux with nvidia-docker2)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -75,13 +75,13 @@ services:
       - ./tts-service/voices:/app/voices:ro
       - tts-cache:/root/.cache
     # Uncomment for NVIDIA GPU support (Linux with nvidia-docker2)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/v1/audio/voices"]

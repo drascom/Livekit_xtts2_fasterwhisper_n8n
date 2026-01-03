@@ -13,4 +13,4 @@ COPY . .
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "voice_agent.py", "dev"]
+CMD ["python", "voice_agent.py", "start"]
