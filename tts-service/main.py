@@ -176,9 +176,36 @@ class TTSRequest(BaseModel):
 class SpeechRequest(BaseModel):
     input: str = Field(..., description="Text to synthesize (OpenAI compatible)")
     model: str | None = Field(None, description="Ignored for compatibility")
-    voice: str | None = Field(None, description="Voice/speaker override")
+    voice: str | None = Field(None, description="Voice/speaker override. Can include language suffix like 'voice:tr' or 'voice:en'")
     language: str | None = Field(None, description="Language hint (auto|tr|en|default)")
     speed: float | None = Field(1.0, description="Speed multiplier")
+
+
+def _parse_voice_and_language(voice: str | None, language: str | None) -> tuple[str | None, str | None]:
+    """Parse voice name and extract language if encoded as 'voice:lang'.
+
+    Supports formats:
+    - "ayhan" -> voice="ayhan", language=None (use passed language param)
+    - "ayhan:tr" -> voice="ayhan", language="tr"
+    - "ayhan:en" -> voice="ayhan", language="en"
+    - "ayhan:auto" -> voice="ayhan", language="auto"
+
+    Returns:
+        Tuple of (voice_name, language)
+    """
+    if not voice:
+        return voice, language
+
+    if ":" in voice:
+        parts = voice.split(":", 1)
+        parsed_voice = parts[0]
+        parsed_lang = parts[1] if len(parts) > 1 else None
+        # Voice-encoded language overrides the language parameter
+        if parsed_lang and parsed_lang in ("auto", "en", "tr"):
+            return parsed_voice, parsed_lang
+        return parsed_voice, language
+
+    return voice, language
 
 
 class TTSResponse(BaseModel):
@@ -212,11 +239,13 @@ async def synthesize_openai_tts(request: SpeechRequest) -> Response:
     if not text:
         raise HTTPException(status_code=400, detail="Input text is required")
 
-    language = _normalize_language(request.language, text)
+    # Parse voice name for embedded language (e.g., "ayhan:tr")
+    voice, lang_from_voice = _parse_voice_and_language(request.voice, request.language)
+    language = _normalize_language(lang_from_voice, text)
     speed = max(0.1, request.speed or 1.0)
 
     try:
-        file_path = _synthesize_to_file(text, request.voice, language, speed)
+        file_path = _synthesize_to_file(text, voice, language, speed)
     except HTTPException:
         raise
     except Exception as exc:

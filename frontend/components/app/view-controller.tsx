@@ -8,6 +8,7 @@ import { SessionView } from '@/components/app/session-view';
 import { WelcomeView } from '@/components/app/welcome-view';
 import { useAgentStatus } from '@/hooks/useAgentStatus';
 import { useStartupStatus } from '@/hooks/useStartupStatus';
+import { getUserSettings } from '@/hooks/useUserSettings';
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(SessionView);
@@ -64,10 +65,12 @@ export function ViewController({ appConfig }: ViewControllerProps) {
     lastWakeRoom.current = roomName;
     if (agentStatus?.status === 'agent_ready') {
       try {
+        // Send user settings with the wake request
+        const userSettings = getUserSettings();
         await fetch('/api/wake', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ room_name: roomName }),
+          body: JSON.stringify({ room_name: roomName, settings: userSettings }),
         });
       } catch (error) {
         console.error('Failed to wake agent', error);
@@ -86,10 +89,12 @@ export function ViewController({ appConfig }: ViewControllerProps) {
     const roomName = pendingWakeRoom;
     setPendingWakeRoom(null);
 
+    // Send user settings with the wake request
+    const userSettings = getUserSettings();
     fetch('/api/wake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room_name: roomName }),
+      body: JSON.stringify({ room_name: roomName, settings: userSettings }),
     }).catch((error) => {
       console.error('Failed to wake agent', error);
     });

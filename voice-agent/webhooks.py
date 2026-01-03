@@ -74,6 +74,36 @@ TTS_VOICES_ENDPOINT = f"{TTS_SERVICE_URL}/v1/audio/voices"
 
 _history_cache: dict[str, ChatContext] = {}
 _tool_data_cache_map: dict[str, ToolDataCache] = {}
+_session_settings: dict[str, dict] = {}  # Per-room session settings from frontend
+
+
+def get_session_settings(room_name: str) -> dict:
+    """Get settings for a session, falling back to global settings."""
+    session_settings = _session_settings.get(room_name, {})
+    global_settings = settings_module.load_settings()
+
+    # Merge: session settings override global settings
+    merged = global_settings.copy()
+    for key, value in session_settings.items():
+        if value is not None:
+            merged[key] = value
+
+    return merged
+
+
+def set_session_settings(room_name: str, settings: dict) -> None:
+    """Store per-session settings for a room."""
+    # Filter out None values
+    filtered = {k: v for k, v in settings.items() if v is not None}
+    _session_settings[room_name] = filtered
+    logger.info(f"Session settings set for room {room_name}: {list(filtered.keys())}")
+
+
+def clear_session_settings(room_name: str) -> None:
+    """Clear session settings when room disconnects."""
+    if room_name in _session_settings:
+        del _session_settings[room_name]
+        logger.debug(f"Session settings cleared for room {room_name}")
 
 
 class AnnounceRequest(BaseModel):
@@ -91,10 +121,26 @@ class ReloadToolsRequest(BaseModel):
     room_name: str = "voice_assistant_room"
 
 
+class SessionSettings(BaseModel):
+    """Per-session settings passed from frontend."""
+
+    agent_name: str | None = None
+    tts_voice: str | None = None
+    tts_language: str | None = None  # "auto", "en", or "tr"
+    prompt: str | None = None
+    wake_greetings: list[str] | None = None
+    temperature: float | None = None
+    model: str | None = None
+    num_ctx: int | None = None
+    max_turns: int | None = None
+    tool_cache_size: int | None = None
+
+
 class WakeRequest(BaseModel):
     """Request body for /wake endpoint."""
 
     room_name: str = "voice_assistant_room"
+    settings: SessionSettings | None = None
 
 
 class WakeResponse(BaseModel):
@@ -163,14 +209,26 @@ class AgentQueryResponse(BaseModel):
     response_audio_url: str
 
 
-def _get_runtime_settings() -> dict:
-    settings = settings_module.load_settings()
+def _get_runtime_settings(room_name: str | None = None) -> dict:
+    """Get runtime settings, using per-session settings if available."""
+    if room_name:
+        settings = get_session_settings(room_name)
+    else:
+        settings = settings_module.load_settings()
+
+    tts_voice = settings.get("tts_voice", "ayhan")
+    tts_language = settings.get("tts_language", "auto")
+
     return {
         "model": settings.get("model") or os.getenv("OLLAMA_MODEL", "ministral-3:8b"),
         "temperature": settings.get("temperature", float(os.getenv("OLLAMA_TEMPERATURE", "0.7"))),
         "num_ctx": settings.get("num_ctx", int(os.getenv("OLLAMA_NUM_CTX", "8192"))),
         "max_turns": settings.get("max_turns", int(os.getenv("OLLAMA_MAX_TURNS", "20"))),
         "tool_cache_size": settings.get("tool_cache_size", int(os.getenv("TOOL_CACHE_SIZE", "3"))),
+        "agent_name": settings.get("agent_name", "Cal"),
+        "tts_voice": tts_voice,
+        "tts_language": tts_language,
+        "tts_voice_with_lang": f"{tts_voice}:{tts_language}",
     }
 
 
@@ -189,10 +247,17 @@ def _get_or_create_context(room_name: str) -> ChatContext:
     if room_name in _history_cache:
         return _history_cache[room_name]
 
+    # Get per-session settings if available
+    session_settings = get_session_settings(room_name)
+    agent_name = session_settings.get("agent_name")
+    language = session_settings.get("tts_language")
+
     chat_ctx = ChatContext()
     prompt = settings_module.load_prompt_with_context(
         timezone_id=TIMEZONE_ID,
         timezone_display=TIMEZONE_DISPLAY,
+        agent_name=agent_name,
+        language=language,
     )
     chat_ctx.add_message(role="system", content=prompt)
     _history_cache[room_name] = chat_ctx
@@ -342,12 +407,11 @@ async def reload_tools(req: ReloadToolsRequest) -> ReloadToolsResponse:
 async def wake(req: WakeRequest) -> WakeResponse:
     """Handle wake word detection - greet the user.
 
-    This endpoint is called by the frontend when the wake word ("Hey Cal")
-    is detected. The agent responds with a brief greeting to acknowledge
-    the user and indicate readiness.
+    This endpoint is called by the frontend when the session starts.
+    It stores per-session settings and greets the user.
 
     Args:
-        req: WakeRequest with room_name
+        req: WakeRequest with room_name and optional per-user settings
 
     Returns:
         WakeResponse with status
@@ -365,11 +429,27 @@ async def wake(req: WakeRequest) -> WakeResponse:
             detail=f"No active session in room: {req.room_name}",
         )
 
-    session, _agent = result
-    logger.info(f"Wake word detected in room {req.room_name}")
+    session, agent = result
+
+    # Store per-session settings if provided
+    if req.settings:
+        set_session_settings(req.room_name, req.settings.model_dump())
+        logger.info(f"User settings applied for room {req.room_name}: agent_name={req.settings.agent_name}, language={req.settings.tts_language}")
+
+        # Update agent's instructions with user's settings (name and language)
+        if hasattr(agent, 'update_instructions'):
+            agent.update_instructions(
+                agent_name=req.settings.agent_name,
+                language=req.settings.tts_language,
+            )
+
+    # Get merged settings (session settings override global)
+    session_settings = get_session_settings(req.room_name)
+
+    logger.info(f"Wake in room {req.room_name} (agent: {session_settings.get('agent_name', 'Cal')})")
 
     # Say a random greeting directly (bypasses LLM for instant response)
-    greetings = settings_module.get_setting("wake_greetings")
+    greetings = session_settings.get("wake_greetings") or settings_module.get_setting("wake_greetings")
     greeting = random.choice(greetings)
     await session.say(greeting)
 
@@ -381,14 +461,16 @@ async def handle_agent_greeting(request: GreetingRequest) -> GreetingResponse:
     room_name = request.room_name or "voice_assistant_room"
     _session, agent = _get_agent_for_room(room_name)
 
-    settings = settings_module.load_settings()
-    instruction = _build_greeting_instruction(settings, request.instruction)
-    runtime = _get_runtime_settings()
+    # Use per-session settings if available
+    runtime = _get_runtime_settings(room_name)
+    instruction = _build_greeting_instruction(runtime, request.instruction)
 
     chat_ctx = ChatContext()
     prompt = settings_module.load_prompt_with_context(
         timezone_id=TIMEZONE_ID,
         timezone_display=TIMEZONE_DISPLAY,
+        agent_name=runtime.get("agent_name"),
+        language=runtime.get("tts_language"),
     )
     chat_ctx.add_message(role="system", content=prompt)
     chat_ctx.add_message(role="user", content=instruction)
@@ -401,15 +483,19 @@ async def handle_agent_greeting(request: GreetingRequest) -> GreetingResponse:
             raise ValueError("LLM returned empty greeting")
     except Exception as exc:
         logger.warning("LLM greeting failed, falling back to preset: %s", exc)
-        greetings = settings.get("wake_greetings", ["Hello."])
+        greetings = runtime.get("wake_greetings", ["Hello."])
         greeting_text = random.choice(greetings)
 
-    # Get selected voice from settings
-    tts_voice = settings.get("tts_voice", "ayhan")
+    # Get selected voice and language from per-session settings
+    tts_voice = runtime.get("tts_voice", "ayhan")
+    tts_language = runtime.get("tts_language", "auto")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            tts_response = await client.post(TTS_URL, json={"text": greeting_text, "voice": tts_voice})
+            tts_response = await client.post(
+                TTS_URL,
+                json={"text": greeting_text, "voice": tts_voice, "language": tts_language}
+            )
             tts_response.raise_for_status()
             audio_url = tts_response.json().get("audio_url", "")
         except Exception as exc:
@@ -424,7 +510,8 @@ async def handle_agent_query(request: AgentQueryRequest) -> AgentQueryResponse:
     room_name = request.room_name or "voice_assistant_room"
     _session, agent = _get_agent_for_room(room_name)
 
-    runtime = _get_runtime_settings()
+    # Use per-session settings if available
+    runtime = _get_runtime_settings(room_name)
 
     chat_ctx = _get_or_create_context(room_name)
     chat_ctx.add_message(role="user", content=request.transcript)
@@ -449,13 +536,16 @@ async def handle_agent_query(request: AgentQueryRequest) -> AgentQueryResponse:
 
     response_audio_url = ""
     if response_text:
-        # Get selected voice from settings
-        settings = settings_module.load_settings()
-        tts_voice = settings.get("tts_voice", "ayhan")
+        # Get selected voice and language from per-session settings
+        tts_voice = runtime.get("tts_voice", "ayhan")
+        tts_language = runtime.get("tts_language", "auto")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                tts_response = await client.post(TTS_URL, json={"text": response_text, "voice": tts_voice})
+                tts_response = await client.post(
+                    TTS_URL,
+                    json={"text": response_text, "voice": tts_voice, "language": tts_language}
+                )
                 tts_response.raise_for_status()
                 response_audio_url = tts_response.json().get("audio_url", "")
             except Exception as exc:

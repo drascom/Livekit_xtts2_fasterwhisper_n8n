@@ -2,66 +2,33 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/livekit/button';
-
-interface Settings {
-  agent_name: string;
-  tts_voice: string;
-  prompt: string;
-  wake_greetings: string[];
-  temperature: number;
-  model: string;
-  num_ctx: number;
-  max_turns: number;
-  tool_cache_size: number;
-}
+import { DEFAULT_USER_SETTINGS, type UserSettings, getUserSettings } from '@/hooks/useUserSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const DEFAULT_SETTINGS: Settings = {
-  agent_name: 'Cal',
-  tts_voice: 'ayhan',
-  prompt: 'default',
-  wake_greetings: [
-    "Hey, what's up?",
-    'Hi there!',
-    'Yeah?',
-    'What can I do for you?',
-    'Hey!',
-    'Yo!',
-    "What's up?",
-  ],
-  temperature: 0.7,
-  model: 'ministral-3:8b',
-  num_ctx: 8192,
-  max_turns: 20,
-  tool_cache_size: 3,
-};
+const STORAGE_KEY = 'geveze_user_settings';
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
   const [voices, setVoices] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSettings = useCallback(async () => {
+  const loadSettings = useCallback(() => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/settings');
-      if (res.ok) {
-        const data = await res.json();
-        // The API returns { settings: {...}, prompt_content: "...", custom_prompt_exists: bool }
-        const agentSettings = data.settings || data;
-        setSettings({ ...DEFAULT_SETTINGS, ...agentSettings });
-      }
+      // Load settings from localStorage (per-user settings)
+      const userSettings = getUserSettings();
+      setSettings(userSettings);
     } catch (err) {
       console.error('Failed to load settings:', err);
-      setError('Failed to load settings from voice agent');
+      setError('Failed to load settings');
     } finally {
       setLoading(false);
     }
@@ -104,15 +71,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setSaving(true);
     setError(null);
     try {
-      // Save voice agent settings via API proxy
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
+      // Save settings to localStorage (per-user persistence)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 
-      if (!res.ok) {
-        throw new Error('Failed to save settings');
+      // Also sync to backend for current/future sessions
+      try {
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings),
+        });
+      } catch (syncErr) {
+        // Backend sync is optional - localStorage is the source of truth
+        console.warn('Failed to sync settings to backend:', syncErr);
       }
 
       onClose();
@@ -124,7 +95,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
-  const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
+  const handleSettingChange = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -196,6 +167,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       ) : (
                         <option value={settings.tts_voice}>{settings.tts_voice}</option>
                       )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-muted-foreground mb-1 block text-xs">Language</label>
+                    <select
+                      value={settings.tts_language}
+                      onChange={(e) => handleSettingChange('tts_language', e.target.value)}
+                      className="bg-muted border-border text-foreground focus:ring-primary w-full rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+                    >
+                      <option value="auto">Auto-detect</option>
+                      <option value="en">English</option>
+                      <option value="tr">Turkish</option>
                     </select>
                   </div>
                   <div>

@@ -121,8 +121,16 @@ def get_runtime_settings() -> dict:
     """
     settings = settings_module.load_settings()
 
+    tts_voice = settings.get("tts_voice") or os.getenv("TTS_VOICE", "am_puck")
+    tts_language = settings.get("tts_language") or os.getenv("XTTS_DEFAULT_LANGUAGE", "auto")
+
+    # Format voice with language for TTS service (e.g., "ayhan:tr")
+    tts_voice_with_lang = f"{tts_voice}:{tts_language}"
+
     return {
-        "tts_voice": settings.get("tts_voice") or os.getenv("TTS_VOICE", "am_puck"),
+        "tts_voice": tts_voice,
+        "tts_language": tts_language,
+        "tts_voice_with_lang": tts_voice_with_lang,
         "model": settings.get("model") or os.getenv("OLLAMA_MODEL", "ministral-3:8b"),
         "temperature": settings.get("temperature", float(os.getenv("OLLAMA_TEMPERATURE", "0.7"))),
         "num_ctx": settings.get("num_ctx", int(os.getenv("OLLAMA_NUM_CTX", "8192"))),
@@ -131,11 +139,16 @@ def get_runtime_settings() -> dict:
     }
 
 
-def load_prompt() -> str:
-    """Load and populate prompt template with date context."""
+def load_prompt(language: str | None = None) -> str:
+    """Load and populate prompt template with date context and language.
+
+    Args:
+        language: Language preference ('auto', 'en', 'tr') for response language
+    """
     return settings_module.load_prompt_with_context(
         timezone_id=TIMEZONE_ID,
         timezone_display=TIMEZONE_DISPLAY,
+        language=language,
     )
 
 
@@ -181,6 +194,23 @@ class VoiceAssistant(WebSearchTools, Agent):
         # Context management: tool data cache and sliding window
         self._tool_data_cache = ToolDataCache(max_entries=tool_cache_size)
         self._max_turns = max_turns
+
+    def update_instructions(self, agent_name: str | None = None, language: str | None = None) -> None:
+        """Update the agent's instructions with new settings.
+
+        This allows per-user customization of the agent's identity and language.
+
+        Args:
+            agent_name: The name the agent should use for itself
+            language: Language preference ('auto', 'en', 'tr') for response language
+        """
+        self._instructions = settings_module.load_prompt_with_context(
+            timezone_id=TIMEZONE_ID,
+            timezone_display=TIMEZONE_DISPLAY,
+            agent_name=agent_name,
+            language=language,
+        )
+        logger.info(f"Agent instructions updated: name={agent_name}, language={language}")
 
     async def llm_node(self, chat_ctx, tools, model_settings):
         """Custom LLM node using Ollama with think parameter for low latency."""
@@ -297,9 +327,10 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     )
 
     # Log configuration (compact)
-    logger.info(f"🤖 AGENT CONFIG: LLM={runtime['model']}, Voice={runtime['tts_voice']}, MCP={list(mcp_servers.keys()) or 'None'}")
+    logger.info(f"🤖 AGENT CONFIG: LLM={runtime['model']}, Voice={runtime['tts_voice']}, Lang={runtime['tts_language']}, MCP={list(mcp_servers.keys()) or 'None'}")
 
     # Create session with Speaches STT and XTTS TTS (both OpenAI-compatible)
+    # Voice includes language suffix (e.g., "ayhan:tr") for XTTS language selection
     session = AgentSession(
         stt=openai.STT(
             base_url=f"{SPEACHES_URL}/v1",
@@ -311,7 +342,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             base_url=f"{TTS_SERVICE_URL}/v1",
             api_key="not-needed",  # TTS service doesn't require auth
             model="xtts",
-            voice=runtime["tts_voice"],
+            voice=runtime["tts_voice_with_lang"],  # Includes language suffix
             response_format="wav",
         ),
         vad=VAD_INSTANCE or silero.VAD.load(),
@@ -435,8 +466,13 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         await close_event.wait()
 
     finally:
-        # Unregister session on cleanup
+        # Unregister session and clear per-session settings
         session_registry.unregister(ctx.room.name)
+        try:
+            from webhooks import clear_session_settings
+            clear_session_settings(ctx.room.name)
+        except ImportError:
+            pass
         logger.info(f"🧹 Session cleanup complete for room: {ctx.room.name}")
 
 

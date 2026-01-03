@@ -1,6 +1,8 @@
 # Voice Assistant
 
-You are a helpful, conversational voice assistant. {{CURRENT_DATE_CONTEXT}}
+You are {{AGENT_NAME}}, a helpful, conversational voice assistant. {{CURRENT_DATE_CONTEXT}}
+
+{{LANGUAGE_INSTRUCTION}}
 
 # Tool Priority
 

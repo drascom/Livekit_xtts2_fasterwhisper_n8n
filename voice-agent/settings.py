@@ -35,6 +35,7 @@ SYSTEM_PROMPT_PATH = Path(
 DEFAULT_SETTINGS = {
     "agent_name": "Cal",
     "tts_voice": "ayhan",
+    "tts_language": "auto",  # "auto", "en", or "tr"
     "prompt": "default",  # "default" or "custom"
     "wake_greetings": [
         "Hey, what's up?",
@@ -203,9 +204,28 @@ def save_custom_prompt(content: str) -> None:
         raise
 
 
+def _get_language_instruction(language: str) -> str:
+    """Get language instruction for the system prompt.
+
+    Args:
+        language: Language code ('auto', 'en', 'tr')
+
+    Returns:
+        Instruction string for the LLM about which language to use
+    """
+    if language == "tr":
+        return "IMPORTANT: Always respond in Turkish (Turkce). The user prefers Turkish language."
+    elif language == "en":
+        return "IMPORTANT: Always respond in English. The user prefers English language."
+    else:  # auto
+        return "Respond in the same language the user speaks. If they speak Turkish, respond in Turkish. If they speak English, respond in English."
+
+
 def load_prompt_with_context(
     timezone_id: str = "America/Los_Angeles",
     timezone_display: str = "Pacific Time",
+    agent_name: str | None = None,
+    language: str | None = None,
 ) -> str:
     """Load prompt and populate with date/time context.
 
@@ -215,9 +235,11 @@ def load_prompt_with_context(
     Args:
         timezone_id: IANA timezone ID for current time
         timezone_display: Human-readable timezone name
+        agent_name: The name the assistant should use (optional, defaults to settings)
+        language: Language preference ('auto', 'en', 'tr') for response language
 
     Returns:
-        Prompt with {{CURRENT_DATE_CONTEXT}} and {{TIMEZONE}} replaced
+        Prompt with {{CURRENT_DATE_CONTEXT}}, {{TIMEZONE}}, {{AGENT_NAME}}, and {{LANGUAGE_INSTRUCTION}} replaced
     """
     from utils.formatting import (
         format_date_speech_friendly,
@@ -232,8 +254,20 @@ def load_prompt_with_context(
         f"The current time is {format_time_speech_friendly(now)} {timezone_display}."
     )
 
+    # Use provided agent_name or fall back to settings
+    if agent_name is None:
+        agent_name = get_setting("agent_name", "Cal")
+
+    # Use provided language or fall back to settings
+    if language is None:
+        language = get_setting("tts_language", "auto")
+
+    language_instruction = _get_language_instruction(language)
+
     prompt = template.replace("{{CURRENT_DATE_CONTEXT}}", date_context)
     prompt = prompt.replace("{{TIMEZONE}}", timezone_display)
+    prompt = prompt.replace("{{AGENT_NAME}}", agent_name)
+    prompt = prompt.replace("{{LANGUAGE_INSTRUCTION}}", language_instruction)
 
     return prompt
 
