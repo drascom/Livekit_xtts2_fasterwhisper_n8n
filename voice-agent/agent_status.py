@@ -11,8 +11,6 @@ class ModelStatus(TypedDict):
     updated_at: float
 
 
-_READY_EVENT = asyncio.Event()
-
 _MODEL_STATUS: dict[str, ModelStatus] = {
     "stt": {
         "state": "pending",
@@ -32,11 +30,6 @@ _MODEL_STATUS: dict[str, ModelStatus] = {
 }
 
 
-def _refresh_ready_event() -> None:
-    if all(entry["state"] == "ready" for entry in _MODEL_STATUS.values()):
-        _READY_EVENT.set()
-
-
 def update_model_status(key: str, state: str, message: str | None = None) -> None:
     if key not in _MODEL_STATUS:
         return
@@ -45,7 +38,6 @@ def update_model_status(key: str, state: str, message: str | None = None) -> Non
     entry["state"] = state
     entry["message"] = message or entry["message"]
     entry["updated_at"] = time.time()
-    _refresh_ready_event()
 
 
 def get_status_snapshot() -> dict:
@@ -65,11 +57,10 @@ def get_status_snapshot() -> dict:
 
 
 async def wait_until_ready(timeout: float | None = None) -> bool:
-    if all(info["state"] == "ready" for info in _MODEL_STATUS.values()):
-        return True
-
-    try:
-        await asyncio.wait_for(_READY_EVENT.wait(), timeout)
-        return True
-    except asyncio.TimeoutError:
-        return False
+    start_time = time.time()
+    while True:
+        if all(info["state"] == "ready" for info in _MODEL_STATUS.values()):
+            return True
+        if timeout is not None and (time.time() - start_time) >= timeout:
+            return False
+        await asyncio.sleep(0.5)

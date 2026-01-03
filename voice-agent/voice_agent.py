@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import time
+import threading
 
 import requests
 
@@ -100,8 +101,12 @@ OLLAMA_THINK = os.getenv("OLLAMA_THINK", "false").lower() == "true"
 TIMEZONE_ID = os.getenv("TIMEZONE", "America/Los_Angeles")
 TIMEZONE_DISPLAY = os.getenv("TIMEZONE_DISPLAY", "Pacific Time")
 AGENT_MODELS_WAIT_TIMEOUT = float(os.getenv("STT_MODEL_WAIT_TIMEOUT", "0"))
+MCP_INIT_TIMEOUT = float(os.getenv("MCP_INIT_TIMEOUT", "10"))
+N8N_DISCOVERY_TIMEOUT = float(os.getenv("N8N_DISCOVERY_TIMEOUT", "10"))
 
 VAD_INSTANCE: silero.VAD | None = None
+_TTS_MONITOR_STARTED = False
+_STT_MONITOR_STARTED = False
 
 # Import settings module for runtime-configurable values
 import settings as settings_module
@@ -213,19 +218,29 @@ async def _publish_agent_status(ctx: agents.JobContext, status: str, message: st
 
 async def entrypoint(ctx: agents.JobContext) -> None:
     """Main entrypoint for the voice agent."""
-
-    logger.debug(f"Joining room: {ctx.room.name}")
+    logger.info("Job received for room: %s", ctx.room.name)
+    logger.info("Connecting to LiveKit room...")
     await ctx.connect()
+    logger.info("Connected to LiveKit room: %s", ctx.room.name)
 
-    timeout = AGENT_MODELS_WAIT_TIMEOUT if AGENT_MODELS_WAIT_TIMEOUT > 0 else None
-    if not await wait_until_ready(timeout):
-        logger.warning("Agent models not ready before accepting the session (timeout reached).")
+    if AGENT_MODELS_WAIT_TIMEOUT <= 0:
+        logger.info("Model readiness wait disabled; continuing without blocking.")
+    else:
+        logger.info("Waiting for model readiness...")
+        if not await wait_until_ready(AGENT_MODELS_WAIT_TIMEOUT):
+            logger.warning("Agent models not ready before accepting the session (timeout reached).")
+        else:
+            logger.info("Model readiness confirmed.")
 
     # Load MCP servers from config
     mcp_servers = {}
     try:
         mcp_configs = load_mcp_config()
-        mcp_servers = await initialize_mcp_servers(mcp_configs)
+        mcp_servers = await asyncio.wait_for(
+            initialize_mcp_servers(mcp_configs),
+            timeout=MCP_INIT_TIMEOUT,
+        )
+        logger.info("MCP initialization complete.")
     except Exception as e:
         logger.warning(f"Failed to load MCP config: {e}")
 
@@ -244,11 +259,30 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                 url_parts = n8n_config.url.rsplit("/", 2)
                 n8n_base_url = url_parts[0] if len(url_parts) >= 2 else n8n_config.url
 
-            n8n_workflow_tools, n8n_workflow_name_map = await discover_n8n_workflows(
-                n8n_mcp, n8n_base_url
+            n8n_workflow_tools, n8n_workflow_name_map = await asyncio.wait_for(
+                discover_n8n_workflows(n8n_mcp, n8n_base_url),
+                timeout=N8N_DISCOVERY_TIMEOUT,
             )
         except Exception as e:
             logger.warning(f"Failed to discover n8n workflows: {e}")
+    else:
+        n8n_base_url = "http://n8n-placeholder.local"
+        n8n_workflow_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "n8n_dummy_workflow",
+                    "description": "Placeholder workflow (n8n not configured yet).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": True,
+                    },
+                },
+            }
+        ]
+        n8n_workflow_name_map = {"n8n_dummy_workflow": "n8n_dummy_workflow"}
+        logger.info("n8n MCP not configured, using dummy workflow placeholder.")
 
     # Get runtime settings (from settings.json with .env fallback)
     runtime = get_runtime_settings()
@@ -277,6 +311,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             api_key="not-needed",  # TTS service doesn't require auth
             model="xtts",
             voice=runtime["tts_voice"],
+            response_format="wav",
         ),
         vad=VAD_INSTANCE or silero.VAD.load(),
     )
@@ -342,6 +377,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
     # Start session
     try:
+        logger.info("Starting agent session for room: %s", ctx.room.name)
         await session.start(
             room=ctx.room,
             agent=assistant,
@@ -418,12 +454,15 @@ def preload_models():
         else:
             logger.warning(f"  STT model download returned {response.status_code}")
             update_model_status("stt", "error", f"STT download returned {response.status_code}")
+            start_stt_model_monitor()
     except Exception as exc:
         logger.warning(f"  Failed to preload STT model: {exc}")
         update_model_status("stt", "error", f"Failed to preload STT model: {exc}")
+        start_stt_model_monitor()
 
     update_model_status("tts", "downloading", "Waiting for XTTS service")
     tts_ready = False
+    tts_wait_logged = False
     for attempt in range(8):
         try:
             tts_response = requests.get(f"{TTS_SERVICE_URL}/health", timeout=10)
@@ -438,7 +477,9 @@ def preload_models():
             else:
                 logger.info("  XTTS health check returned %s", tts_response.status_code)
         except Exception as exc:  # pragma: no cover
-            logger.info("  XTTS health check failed: %s", exc)
+            if not tts_wait_logged:
+                logger.info("  XTTS waiting for service...")
+                tts_wait_logged = True
         time.sleep(2)
     if not tts_ready:
         update_model_status("tts", "error", "XTTS service unavailable")
@@ -474,6 +515,68 @@ def preload_models():
         logger.info("  ✓ VAD ready")
     except Exception as exc:
         logger.warning("  Failed to preload VAD model: %s", exc)
+
+
+def _monitor_tts_health() -> None:
+    logger.info("Starting XTTS health monitor")
+    last_state = None
+    while True:
+        try:
+            tts_response = requests.get(f"{TTS_SERVICE_URL}/health", timeout=5)
+            if tts_response.status_code == 200:
+                payload = tts_response.json()
+                ready = bool(payload.get("model_ready"))
+                message = payload.get("message") or ("XTTS ready" if ready else "XTTS loading")
+                update_model_status("tts", "ready" if ready else "downloading", message)
+                state = "ready" if ready else "loading"
+                if state != last_state:
+                    logger.info("  ✓ XTTS ready" if ready else "  XTTS loading")
+                    last_state = state
+                if ready:
+                    return
+            else:
+                logger.info("  XTTS health check returned %s", tts_response.status_code)
+        except Exception as exc:  # pragma: no cover
+            if last_state != "waiting":
+                logger.info("  XTTS waiting for service...")
+                last_state = "waiting"
+        time.sleep(2)
+
+
+def start_tts_health_monitor() -> None:
+    global _TTS_MONITOR_STARTED
+    if _TTS_MONITOR_STARTED:
+        return
+    _TTS_MONITOR_STARTED = True
+    thread = threading.Thread(target=_monitor_tts_health, daemon=True)
+    thread.start()
+
+
+def _monitor_stt_model() -> None:
+    while True:
+        update_model_status("stt", "downloading", f"Downloading STT: {WHISPER_MODEL}")
+        try:
+            response = requests.post(
+                f"{SPEACHES_URL}/v1/models/{WHISPER_MODEL}",
+                timeout=300,
+            )
+            if response.status_code in (200, 201):
+                logger.info("  ✓ STT ready")
+                update_model_status("stt", "ready", "Speaches STT ready")
+                return
+            logger.warning("  STT model download returned %s", response.status_code)
+        except Exception as exc:  # pragma: no cover
+            logger.info("  STT preload failed: %s", exc)
+        time.sleep(5)
+
+
+def start_stt_model_monitor() -> None:
+    global _STT_MONITOR_STARTED
+    if _STT_MONITOR_STARTED:
+        return
+    _STT_MONITOR_STARTED = True
+    thread = threading.Thread(target=_monitor_stt_model, daemon=True)
+    thread.start()
 
 
 # =============================================================================
@@ -518,6 +621,7 @@ if __name__ == "__main__":
 
     # Start webhook server in background thread (available immediately)
     start_webhook_server_thread()
+    start_tts_health_monitor()
 
     # Get agent name from environment (must match frontend's NEXT_PUBLIC_AGENT_NAME)
     agent_name = os.getenv("LIVEKIT_AGENT_NAME", "geveze-agent")
