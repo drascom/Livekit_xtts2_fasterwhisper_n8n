@@ -22,8 +22,13 @@ echo ""
 
 # Check if .env exists
 if [ ! -f "$BACKEND_DIR/.env" ]; then
-    echo -e "${YELLOW}Warning: backend/.env not found${NC}"
-    echo "Copy backend/.env.example to backend/.env and configure it"
+    if [ -f "$BACKEND_DIR/.env.example" ]; then
+        echo -e "${GREEN}Creating backend/.env from backend/.env.example...${NC}"
+        cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
+    else
+        echo -e "${YELLOW}Warning: backend/.env not found${NC}"
+        echo "Copy backend/.env.example to backend/.env and configure it"
+    fi
 fi
 
 get_default_env_value() {
