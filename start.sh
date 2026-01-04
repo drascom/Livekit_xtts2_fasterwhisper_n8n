@@ -116,6 +116,8 @@ if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
     exit 1
 fi
 
+source .venv/bin/activate
+
 require_env_value "LIVEKIT_URL"
 require_env_value "LIVEKIT_API_KEY"
 require_env_value "LIVEKIT_API_SECRET"
@@ -123,7 +125,6 @@ reject_placeholder_env_value "LIVEKIT_URL" "wss://your-livekit-server"
 reject_placeholder_env_value "LIVEKIT_API_KEY" "your-livekit-key"
 reject_placeholder_env_value "LIVEKIT_API_SECRET" "your-livekit-secret"
 
-source .venv/bin/activate
 python3 agent.py dev &
 BACKEND_PID=$!
 
