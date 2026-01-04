@@ -43,6 +43,12 @@ check_node_version() {
     local required="20.9.0"
     if ! command -v node >/dev/null 2>&1; then
         echo -e "${YELLOW}Node.js is not installed. Install >= ${required} to run the frontend.${NC}"
+        echo "Ubuntu update steps:"
+        echo "  1) sudo apt-get remove -y nodejs || true"
+        echo "  2) curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "  3) sudo apt-get install -y nodejs"
+        echo "  4) node -v && npm -v"
+        echo "Or use nvm: https://github.com/nvm-sh/nvm"
         exit 1
     fi
     local current
@@ -50,6 +56,12 @@ check_node_version() {
     if ! version_ge "$current" "$required"; then
         echo -e "${YELLOW}Node.js ${current} detected. Next.js requires >= ${required}.${NC}"
         echo "Update Node.js and re-run ./start.sh"
+        echo "Ubuntu update steps:"
+        echo "  1) sudo apt-get remove -y nodejs || true"
+        echo "  2) curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "  3) sudo apt-get install -y nodejs"
+        echo "  4) node -v && npm -v"
+        echo "Or use nvm: https://github.com/nvm-sh/nvm"
         exit 1
     fi
 }
@@ -65,6 +77,37 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+get_env_value() {
+    local key="$1"
+    local value=""
+    if [ -f "$BACKEND_DIR/.env" ]; then
+        value="$(grep -E "^${key}=" "$BACKEND_DIR/.env" | head -n 1 | cut -d= -f2-)"
+    fi
+    echo "$value"
+}
+
+require_env_value() {
+    local key="$1"
+    local value=""
+    value="$(get_env_value "$key")"
+    if [ -z "$value" ]; then
+        echo -e "${YELLOW}Missing ${key} in backend/.env. Update it and re-run ./start.sh${NC}"
+        exit 1
+    fi
+}
+
+reject_placeholder_env_value() {
+    local key="$1"
+    local placeholder="$2"
+    local value=""
+    value="$(get_env_value "$key")"
+    if [ "$value" = "$placeholder" ]; then
+        echo -e "${YELLOW}${key} is still set to the placeholder value in backend/.env.${NC}"
+        echo "Update it with real credentials and re-run ./start.sh"
+        exit 1
+    fi
+}
+
 # Start Backend
 echo -e "${GREEN}Starting Backend (Agent + API)...${NC}"
 cd "$BACKEND_DIR"
@@ -72,6 +115,13 @@ if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
     echo -e "${YELLOW}Backend environment not found. Run ./install.sh first.${NC}"
     exit 1
 fi
+
+require_env_value "LIVEKIT_URL"
+require_env_value "LIVEKIT_API_KEY"
+require_env_value "LIVEKIT_API_SECRET"
+reject_placeholder_env_value "LIVEKIT_URL" "wss://your-livekit-server"
+reject_placeholder_env_value "LIVEKIT_API_KEY" "your-livekit-key"
+reject_placeholder_env_value "LIVEKIT_API_SECRET" "your-livekit-secret"
 
 source .venv/bin/activate
 python3 agent.py dev &

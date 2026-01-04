@@ -55,6 +55,12 @@ check_node_version() {
     local required="20.9.0"
     if ! command -v node >/dev/null 2>&1; then
         echo -e "${YELLOW}Node.js is not installed. Install >= ${required} to run the frontend.${NC}"
+        echo "Ubuntu update steps:"
+        echo "  1) sudo apt-get remove -y nodejs || true"
+        echo "  2) curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "  3) sudo apt-get install -y nodejs"
+        echo "  4) node -v && npm -v"
+        echo "Or use nvm: https://github.com/nvm-sh/nvm"
         exit 1
     fi
     local current
@@ -62,6 +68,12 @@ check_node_version() {
     if ! version_ge "$current" "$required"; then
         echo -e "${YELLOW}Node.js ${current} detected. Next.js requires >= ${required}.${NC}"
         echo "Update Node.js and re-run ./install.sh"
+        echo "Ubuntu update steps:"
+        echo "  1) sudo apt-get remove -y nodejs || true"
+        echo "  2) curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "  3) sudo apt-get install -y nodejs"
+        echo "  4) node -v && npm -v"
+        echo "Or use nvm: https://github.com/nvm-sh/nvm"
         exit 1
     fi
 }
