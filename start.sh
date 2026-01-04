@@ -40,6 +40,27 @@ trap cleanup SIGINT SIGTERM
 # Start Backend
 echo -e "${GREEN}Starting Backend (Agent + API)...${NC}"
 cd "$BACKEND_DIR"
+if ! command -v uv >/dev/null 2>&1; then
+    echo -e "${YELLOW}uv is not installed. Installing...${NC}"
+    if command -v curl >/dev/null 2>&1; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- https://astral.sh/uv/install.sh | sh
+    else
+        echo -e "${YELLOW}Neither curl nor wget is available. Install uv from https://docs.astral.sh/uv/${NC}"
+        exit 1
+    fi
+    if ! command -v uv >/dev/null 2>&1; then
+        echo -e "${YELLOW}uv install did not complete. Restart your shell and try again.${NC}"
+        exit 1
+    fi
+fi
+if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
+    echo -e "${GREEN}Creating virtual environment...${NC}"
+    uv venv
+    echo -e "${GREEN}Installing backend dependencies...${NC}"
+    uv pip install -r requirements.txt
+fi
 source .venv/bin/activate
 python3 agent.py dev &
 BACKEND_PID=$!

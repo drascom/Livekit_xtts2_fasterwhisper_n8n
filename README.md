@@ -4,6 +4,22 @@ Multi-user multimodal voice agent with Ollama, n8n, and Home Assistant integrati
 
 ## Quick Start
 
+## Python Virtual Environment (uv)
+
+Create the backend virtual environment and install dependencies:
+```bash
+cd backend
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+Use the environment in new shells:
+```bash
+cd backend
+source .venv/bin/activate
+```
+
 ```bash
 ./start.sh
 ```
@@ -24,6 +40,8 @@ python3 agent.py dev
 cd frontend
 pnpm dev
 ```
+
+
 
 ## URLs
 
