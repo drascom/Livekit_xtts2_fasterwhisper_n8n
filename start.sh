@@ -26,6 +26,49 @@ if [ ! -f "$BACKEND_DIR/.env" ]; then
     echo "Copy backend/.env.example to backend/.env and configure it"
 fi
 
+get_default_env_value() {
+    local key="$1"
+    local value=""
+
+    if [ -f "$BACKEND_DIR/.env.example" ]; then
+        value="$(grep -E "^${key}=" "$BACKEND_DIR/.env.example" | head -n 1 | cut -d= -f2-)"
+        value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    fi
+
+    echo "$value"
+}
+
+prompt_env_var() {
+    local key="$1"
+    local value=""
+    local default_value=""
+
+    if [ -f "$BACKEND_DIR/.env" ]; then
+        value="$(grep -E "^${key}=" "$BACKEND_DIR/.env" | head -n 1 | cut -d= -f2-)"
+    fi
+
+    if [ -n "$value" ]; then
+        return
+    fi
+
+    default_value="$(get_default_env_value "$key")"
+    if [ -n "$default_value" ]; then
+        read -r -p "Enter ${key} [${default_value}]: " value
+        if [ -z "$value" ]; then
+            value="$default_value"
+        fi
+    else
+        read -r -p "Enter ${key}: " value
+    fi
+
+    if [ -z "$value" ]; then
+        echo -e "${YELLOW}${key} is required. Exiting.${NC}"
+        exit 1
+    fi
+
+    echo "${key}=${value}" >> "$BACKEND_DIR/.env"
+}
+
 # Function to cleanup on exit
 cleanup() {
     echo ""
@@ -61,6 +104,11 @@ if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
     echo -e "${GREEN}Installing backend dependencies...${NC}"
     uv pip install -r requirements.txt
 fi
+
+prompt_env_var "LIVEKIT_URL"
+prompt_env_var "LIVEKIT_API_KEY"
+prompt_env_var "LIVEKIT_API_SECRET"
+
 source .venv/bin/activate
 python3 agent.py dev &
 BACKEND_PID=$!
@@ -72,6 +120,10 @@ sleep 3
 # Start Frontend
 echo -e "${GREEN}Starting Frontend...${NC}"
 cd "$FRONTEND_DIR"
+if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+    echo -e "${GREEN}Installing frontend dependencies...${NC}"
+    pnpm install
+fi
 pnpm dev &
 FRONTEND_PID=$!
 
