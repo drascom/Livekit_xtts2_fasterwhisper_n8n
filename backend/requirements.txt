@@ -1,0 +1,11 @@
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-noise-cancellation
+requests
+httpx
+python-dotenv
+pydantic-ai-slim[openai,mcp]
+tzdata
+fastapi
+uvicorn[standard]
+pydantic

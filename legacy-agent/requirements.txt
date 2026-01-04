@@ -1,0 +1,13 @@
+livekit-agents[mcp]
+livekit-plugins-openai
+livekit-plugins-silero
+httpx
+aiohttp
+requests
+fastapi
+uvicorn
+python-dotenv
+python-multipart
+pydantic
+ollama
+duckduckgo-search
