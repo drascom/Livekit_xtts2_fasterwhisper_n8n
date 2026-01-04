@@ -20,60 +20,6 @@ echo -e "${BLUE}   Geveze - AI Voice Assistant${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
-# Check if .env exists
-if [ ! -f "$BACKEND_DIR/.env" ]; then
-    if [ -f "$BACKEND_DIR/.env.example" ]; then
-        echo -e "${GREEN}Creating backend/.env from backend/.env.example...${NC}"
-        cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
-    else
-        echo -e "${YELLOW}Warning: backend/.env not found${NC}"
-        echo "Copy backend/.env.example to backend/.env and configure it"
-    fi
-fi
-
-get_default_env_value() {
-    local key="$1"
-    local value=""
-
-    if [ -f "$BACKEND_DIR/.env.example" ]; then
-        value="$(grep -E "^${key}=" "$BACKEND_DIR/.env.example" | head -n 1 | cut -d= -f2-)"
-        value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    fi
-
-    echo "$value"
-}
-
-prompt_env_var() {
-    local key="$1"
-    local value=""
-    local default_value=""
-
-    if [ -f "$BACKEND_DIR/.env" ]; then
-        value="$(grep -E "^${key}=" "$BACKEND_DIR/.env" | head -n 1 | cut -d= -f2-)"
-    fi
-
-    if [ -n "$value" ]; then
-        return
-    fi
-
-    default_value="$(get_default_env_value "$key")"
-    if [ -n "$default_value" ]; then
-        read -r -p "Enter ${key} [${default_value}]: " value
-        if [ -z "$value" ]; then
-            value="$default_value"
-        fi
-    else
-        read -r -p "Enter ${key}: " value
-    fi
-
-    if [ -z "$value" ]; then
-        echo -e "${YELLOW}${key} is required. Exiting.${NC}"
-        exit 1
-    fi
-
-    echo "${key}=${value}" >> "$BACKEND_DIR/.env"
-}
-
 # Function to cleanup on exit
 cleanup() {
     echo ""
@@ -88,31 +34,10 @@ trap cleanup SIGINT SIGTERM
 # Start Backend
 echo -e "${GREEN}Starting Backend (Agent + API)...${NC}"
 cd "$BACKEND_DIR"
-if ! command -v uv >/dev/null 2>&1; then
-    echo -e "${YELLOW}uv is not installed. Installing...${NC}"
-    if command -v curl >/dev/null 2>&1; then
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO- https://astral.sh/uv/install.sh | sh
-    else
-        echo -e "${YELLOW}Neither curl nor wget is available. Install uv from https://docs.astral.sh/uv/${NC}"
-        exit 1
-    fi
-    if ! command -v uv >/dev/null 2>&1; then
-        echo -e "${YELLOW}uv install did not complete. Restart your shell and try again.${NC}"
-        exit 1
-    fi
-fi
 if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
-    echo -e "${GREEN}Creating virtual environment...${NC}"
-    uv venv
-    echo -e "${GREEN}Installing backend dependencies...${NC}"
-    uv pip install -r requirements.txt
+    echo -e "${YELLOW}Backend environment not found. Run ./install.sh first.${NC}"
+    exit 1
 fi
-
-prompt_env_var "LIVEKIT_URL"
-prompt_env_var "LIVEKIT_API_KEY"
-prompt_env_var "LIVEKIT_API_SECRET"
 
 source .venv/bin/activate
 python3 agent.py dev &
@@ -126,8 +51,8 @@ sleep 3
 echo -e "${GREEN}Starting Frontend...${NC}"
 cd "$FRONTEND_DIR"
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-    echo -e "${GREEN}Installing frontend dependencies...${NC}"
-    pnpm install
+    echo -e "${YELLOW}Frontend dependencies not found. Run ./install.sh first.${NC}"
+    exit 1
 fi
 pnpm dev &
 FRONTEND_PID=$!
