@@ -32,6 +32,40 @@ get_default_env_value() {
     echo "$value"
 }
 
+version_ge() {
+    local a="$1"
+    local b="$2"
+    local IFS=.
+    local i
+    read -r -a a_parts <<< "$a"
+    read -r -a b_parts <<< "$b"
+    for i in 0 1 2; do
+        local a_num="${a_parts[$i]:-0}"
+        local b_num="${b_parts[$i]:-0}"
+        if [ "$a_num" -gt "$b_num" ]; then
+            return 0
+        elif [ "$a_num" -lt "$b_num" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+check_node_version() {
+    local required="20.9.0"
+    if ! command -v node >/dev/null 2>&1; then
+        echo -e "${YELLOW}Node.js is not installed. Install >= ${required} to run the frontend.${NC}"
+        exit 1
+    fi
+    local current
+    current="$(node -v | sed 's/^v//')"
+    if ! version_ge "$current" "$required"; then
+        echo -e "${YELLOW}Node.js ${current} detected. Next.js requires >= ${required}.${NC}"
+        echo "Update Node.js and re-run ./install.sh"
+        exit 1
+    fi
+}
+
 prompt_env_var() {
     local key="$1"
     local value=""
@@ -96,18 +130,31 @@ cd "$BACKEND_DIR"
 if [ ! -f "$BACKEND_DIR/.venv/bin/activate" ]; then
     echo -e "${GREEN}Creating virtual environment...${NC}"
     uv venv
+    echo -e "${GREEN}Installing backend dependencies...${NC}"
+    uv pip install -r requirements.txt
+else
+    echo -e "${GREEN}Backend virtual environment already exists. Skipping install.${NC}"
 fi
-echo -e "${GREEN}Installing backend dependencies...${NC}"
-uv pip install -r requirements.txt
 
 prompt_env_var "LIVEKIT_URL"
 prompt_env_var "LIVEKIT_API_KEY"
 prompt_env_var "LIVEKIT_API_SECRET"
 
+echo ""
+echo -e "${YELLOW}Make sure to update backend/.env with real LiveKit values:${NC}"
+echo "  LIVEKIT_URL=wss://your-livekit-server"
+echo "  LIVEKIT_API_KEY=your-livekit-key"
+echo "  LIVEKIT_API_SECRET=your-livekit-secret"
+
 # Frontend deps
 cd "$FRONTEND_DIR"
-echo -e "${GREEN}Installing frontend dependencies...${NC}"
-pnpm install
+check_node_version
+if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+    echo -e "${GREEN}Installing frontend dependencies...${NC}"
+    pnpm install
+else
+    echo -e "${GREEN}Frontend dependencies already installed. Skipping install.${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}======================================${NC}"
