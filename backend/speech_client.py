@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +38,8 @@ DEFAULT_SPEECH_TIMEOUT = 30.0
 DEFAULT_VAD_THRESHOLD = 500
 DEFAULT_VAD_MIN_SPEECH = 0.1
 DEFAULT_VAD_SILENCE = 0.35
+
+logger = logging.getLogger("SpeechClient")
 
 
 def _build_headers(api_key: str | None, accept: str) -> dict[str, str]:
@@ -192,6 +195,11 @@ class DrascomSTT(stt.STT):
         )
 
         if not transcript:
+            logger.debug(
+                "stt empty transcript (duration=%.2fs, language=%s)",
+                audio_duration,
+                language_code or "unknown",
+            )
             return SpeechEvent(
                 type=SpeechEventType.FINAL_TRANSCRIPT,
                 request_id=response.headers.get("x-request-id", ""),
@@ -199,6 +207,12 @@ class DrascomSTT(stt.STT):
                 recognition_usage=RecognitionUsage(audio_duration=audio_duration),
             )
 
+        logger.info(
+            "stt transcript (duration=%.2fs, language=%s): %s",
+            audio_duration,
+            language_code or "unknown",
+            transcript,
+        )
         return SpeechEvent(
             type=SpeechEventType.FINAL_TRANSCRIPT,
             request_id=response.headers.get("x-request-id", ""),
@@ -292,6 +306,14 @@ class _DrascomTTSSynthesizedStream(tts.ChunkedStream):
             "response_format": self._tts._opts.response_format,
             "speed": self._tts._opts.speed,
         }
+        logger.info(
+            "tts request (model=%s, voice=%s, format=%s, speed=%.2f): %s",
+            self._tts._opts.model,
+            self._tts._opts.voice,
+            self._tts._opts.response_format,
+            self._tts._opts.speed,
+            self.input_text,
+        )
 
         try:
             response = await self._tts._client.post(

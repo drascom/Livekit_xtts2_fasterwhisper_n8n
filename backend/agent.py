@@ -259,6 +259,11 @@ async def entrypoint(ctx: agents.JobContext):
 
     def _on_user_transcribed(ev):
         if ev.is_final:
+            logger.info(
+                "user transcript (language=%s): %s",
+                getattr(ev, "language", None),
+                getattr(ev, "text", None),
+            )
             agent.set_detected_language(ev.language)
 
     session.on("user_input_transcribed", _on_user_transcribed)

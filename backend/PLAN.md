@@ -218,6 +218,16 @@ frontend/
 - FastAPI (webhooks/API)
 - httpx (async HTTP)
 - Ollama (LLM)
+
+---
+
+## Deployment Plan (Later)
+
+### Containerized Deployment
+- **Frontend**: Build static Next.js export and serve via **nginx**
+- **Backend**: Python API + LiveKit agent service in its own container
+- **Orchestration**: **docker-compose** for local/prod parity
+- **Config**: Inject `NEXT_PUBLIC_API_URL` at frontend build time and mount envs for backend
 - Speaches (STT/TTS)
 
 ### Frontend
